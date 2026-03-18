@@ -81,12 +81,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const data = await response.json() as OpenRouterResponse;
+  // Leer el body como texto primero para evitar SyntaxError si viene vacío o no-JSON
+  const rawBody = await response.text().catch(() => '');
 
   if (!response.ok) {
-    const errMsg = data.error?.message || `OpenRouter error ${response.status}`;
+    let errMsg = `OpenRouter error ${response.status}`;
+    if (rawBody) {
+      try {
+        const errData = JSON.parse(rawBody) as OpenRouterResponse;
+        errMsg = errData.error?.message || errMsg;
+      } catch {
+        // body no es JSON — usar el texto plano si es breve
+        if (rawBody.length < 200) errMsg = rawBody;
+      }
+    }
     console.error('Error de OpenRouter:', response.status, errMsg);
     return NextResponse.json({ error: errMsg }, { status: response.status });
+  }
+
+  if (!rawBody) {
+    return NextResponse.json({ error: 'Respuesta vacía de OpenRouter' }, { status: 502 });
+  }
+
+  let data: OpenRouterResponse;
+  try {
+    data = JSON.parse(rawBody) as OpenRouterResponse;
+  } catch {
+    console.error('OpenRouter devolvió un body no-JSON:', rawBody.slice(0, 300));
+    return NextResponse.json(
+      { error: 'OpenRouter devolvió una respuesta inválida (no JSON)' },
+      { status: 502 }
+    );
   }
 
   const text = data.choices?.[0]?.message?.content;

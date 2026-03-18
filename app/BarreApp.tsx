@@ -24,6 +24,16 @@ import BarreIllustrator from './components/BarreIllustrator';
 // --- CONFIGURACIÓN ---
 const STORAGE_KEY = 'barre-ai-routines-v1';
 
+// --- TIPOS PARA PROVEEDOR ACTIVO ---
+export type AIProvider = 'gemini' | 'openrouter' | 'ollama-cloud' | null;
+
+/** Nombre legible para mostrar en la UI */
+export const PROVIDER_LABELS: Record<NonNullable<AIProvider>, string> = {
+  'gemini': 'Gemini',
+  'openrouter': 'OpenRouter',
+  'ollama-cloud': 'Ollama Cloud',
+};
+
 // --- HELPER: llamada a la API de Gemini via server route ---
 async function callGeminiAPI(prompt: string, signal?: AbortSignal): Promise<unknown> {
   const response = await fetch('/api/gemini', {
@@ -44,8 +54,8 @@ async function callGeminiAPI(prompt: string, signal?: AbortSignal): Promise<unkn
   return (data as { result: unknown }).result;
 }
 
-// --- HELPER: llamada a la API de Ollama via server route (fallback) ---
-async function callOllamaAPI(prompt: string, signal?: AbortSignal): Promise<unknown> {
+// --- HELPER: llamada a la API de OpenRouter via server route (2do fallback) ---
+async function callOpenRouterAPI(prompt: string, signal?: AbortSignal): Promise<unknown> {
   const response = await fetch('/api/ollama', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -56,7 +66,7 @@ async function callOllamaAPI(prompt: string, signal?: AbortSignal): Promise<unkn
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(
-      (errorData as { error?: string }).error || `Error de Ollama: ${response.status}`
+      (errorData as { error?: string }).error || `Error de OpenRouter: ${response.status}`
     );
   }
 
@@ -85,33 +95,40 @@ async function callOllamaCloudAPI(prompt: string, signal?: AbortSignal): Promise
 }
 
 /**
- * Cadena de fallback: Gemini → OpenRouter Free → Ollama Cloud
- * Cada fallo muestra una notificación antes de pasar al siguiente.
+ * Cadena de fallback estricta: Gemini → OpenRouter → Ollama Cloud
+ * onFallback(msg): muestra aviso al usuario antes de cada salto.
+ * onProvider(p): informa qué proveedor está activo en cada momento.
  */
 async function callAIWithFallback(
   prompt: string,
   onFallback: (msg: string) => void,
+  onProvider: (provider: AIProvider) => void,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  // 1. Gemini
+  // 1. Gemini (primero siempre)
+  onProvider('gemini');
   try {
-    return await callGeminiAPI(prompt, signal);
+    const result = await callGeminiAPI(prompt, signal);
+    return result;
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err;
-    console.warn('Gemini falló, cambiando a OpenRouter:', (err as Error).message);
-    onFallback('Gemini no está disponible. Reintentando con OpenRouter ahora mismo...');
+    console.warn('[Fallback] Gemini falló → OpenRouter:', (err as Error).message);
+    onFallback('Gemini no está disponible. Cambiando a OpenRouter...');
   }
 
-  // 2. OpenRouter Free
+  // 2. OpenRouter Free (segundo siempre)
+  onProvider('openrouter');
   try {
-    return await callOllamaAPI(prompt, signal);
+    const result = await callOpenRouterAPI(prompt, signal);
+    return result;
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err;
-    console.warn('OpenRouter falló, cambiando a Ollama Cloud:', (err as Error).message);
-    onFallback('OpenRouter tampoco responde. Reintentando con Ollama Cloud...');
+    console.warn('[Fallback] OpenRouter falló → Ollama Cloud:', (err as Error).message);
+    onFallback('OpenRouter no responde. Cambiando a Ollama Cloud...');
   }
 
-  // 3. Ollama Cloud
+  // 3. Ollama Cloud (tercero y último)
+  onProvider('ollama-cloud');
   return await callOllamaCloudAPI(prompt, signal);
 }
 
@@ -132,6 +149,7 @@ export default function BarreApp() {
   const [isRefreshingSongs, setIsRefreshingSongs] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [activeProvider, setActiveProvider] = useState<AIProvider>(null);
 
   // AbortController ref para cancelar fetch al desmontar
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -229,7 +247,8 @@ ${typeCatalog}
     try {
       const result = await callAIWithFallback(
         prompt,
-        () => setInfo('Gemini no está disponible. Reintentando con Ollama ahora mismo...'),
+        (msg) => setInfo(msg),
+        (p) => setActiveProvider(p),
         controller.signal,
       );
 
@@ -264,6 +283,7 @@ ${typeCatalog}
       setError(`No se pudo mejorar la rutina: ${(err as Error).message}`);
     } finally {
       setIsImproving(false);
+      setActiveProvider(null);
     }
   };
 
@@ -305,7 +325,8 @@ ${typeCatalog}
     try {
       const result = await callAIWithFallback(
         prompt,
-        () => setInfo('Gemini no está disponible. Reintentando con Ollama ahora mismo...'),
+        (msg) => setInfo(msg),
+        (p) => setActiveProvider(p),
         controller.signal,
       );
       const newSongs = validateSongBlocks(result, numExercises);
@@ -319,6 +340,7 @@ ${typeCatalog}
       setError(`No se pudieron refrescar las canciones: ${(err as Error).message}`);
     } finally {
       setIsRefreshingSongs(false);
+      setActiveProvider(null);
     }
   };
 
@@ -371,9 +393,23 @@ ${typeCatalog}
             BARRE<span className="text-indigo-600">AI</span> STUDIO
           </h1>
         </div>
-        <div className="flex items-center gap-2 text-xs font-bold bg-indigo-50 px-3 py-1.5 rounded-full text-indigo-700">
-          <Clock size={14} />
-          TOTAL: ~75 MIN
+        <div className="flex items-center gap-3">
+          {/* INDICADOR DE PROVEEDOR LLM */}
+          {activeProvider ? (
+            <div className="flex items-center gap-2 text-xs font-bold bg-indigo-600 text-white px-3 py-1.5 rounded-full shadow-md shadow-indigo-200 animate-pulse">
+              <RefreshCw size={12} className="animate-spin" />
+              {PROVIDER_LABELS[activeProvider]}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-bold bg-slate-100 text-slate-400 px-3 py-1.5 rounded-full">
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+              IA en espera
+            </div>
+          )}
+          <div className="flex items-center gap-2 text-xs font-bold bg-indigo-50 px-3 py-1.5 rounded-full text-indigo-700">
+            <Clock size={14} />
+            TOTAL: ~75 MIN
+          </div>
         </div>
       </header>
 
