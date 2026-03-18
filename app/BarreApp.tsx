@@ -11,6 +11,7 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
+  Info,
   X,
 } from 'lucide-react';
 
@@ -43,6 +44,77 @@ async function callGeminiAPI(prompt: string, signal?: AbortSignal): Promise<unkn
   return (data as { result: unknown }).result;
 }
 
+// --- HELPER: llamada a la API de Ollama via server route (fallback) ---
+async function callOllamaAPI(prompt: string, signal?: AbortSignal): Promise<unknown> {
+  const response = await fetch('/api/ollama', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+    signal,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      (errorData as { error?: string }).error || `Error de Ollama: ${response.status}`
+    );
+  }
+
+  const data = await response.json();
+  return (data as { result: unknown }).result;
+}
+
+// --- HELPER: llamada a la API de Ollama Cloud via server route (3er fallback) ---
+async function callOllamaCloudAPI(prompt: string, signal?: AbortSignal): Promise<unknown> {
+  const response = await fetch('/api/ollama-cloud', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+    signal,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      (errorData as { error?: string }).error || `Error de Ollama Cloud: ${response.status}`
+    );
+  }
+
+  const data = await response.json();
+  return (data as { result: unknown }).result;
+}
+
+/**
+ * Cadena de fallback: Gemini → OpenRouter Free → Ollama Cloud
+ * Cada fallo muestra una notificación antes de pasar al siguiente.
+ */
+async function callAIWithFallback(
+  prompt: string,
+  onFallback: (msg: string) => void,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  // 1. Gemini
+  try {
+    return await callGeminiAPI(prompt, signal);
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw err;
+    console.warn('Gemini falló, cambiando a OpenRouter:', (err as Error).message);
+    onFallback('Gemini no está disponible. Reintentando con OpenRouter ahora mismo...');
+  }
+
+  // 2. OpenRouter Free
+  try {
+    return await callOllamaAPI(prompt, signal);
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw err;
+    console.warn('OpenRouter falló, cambiando a Ollama Cloud:', (err as Error).message);
+    onFallback('OpenRouter tampoco responde. Reintentando con Ollama Cloud...');
+  }
+
+  // 3. Ollama Cloud
+  return await callOllamaCloudAPI(prompt, signal);
+}
+
 // --- APP PRINCIPAL ---
 export default function BarreApp() {
   const [routines, setRoutines] = useState<Routine[]>(() => {
@@ -59,6 +131,7 @@ export default function BarreApp() {
   const [isImproving, setIsImproving] = useState(false);
   const [isRefreshingSongs, setIsRefreshingSongs] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   // AbortController ref para cancelar fetch al desmontar
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -76,6 +149,13 @@ export default function BarreApp() {
     const timer = setTimeout(() => setError(null), 5000);
     return () => clearTimeout(timer);
   }, [error]);
+
+  // Auto-dismiss del aviso de fallback después de 6 segundos
+  useEffect(() => {
+    if (!info) return;
+    const timer = setTimeout(() => setInfo(null), 6000);
+    return () => clearTimeout(timer);
+  }, [info]);
 
   // Clamp currentIdx cuando routines cambia
   useEffect(() => {
@@ -147,7 +227,11 @@ ${typeCatalog}
     abortControllerRef.current = controller;
 
     try {
-      const result = await callGeminiAPI(prompt, controller.signal);
+      const result = await callAIWithFallback(
+        prompt,
+        () => setInfo('Gemini no está disponible. Reintentando con Ollama ahora mismo...'),
+        controller.signal,
+      );
 
       // Parsear respuesta que ahora contiene sequence y songs
       const parsed = result as { sequence?: unknown; songs?: unknown };
@@ -219,7 +303,11 @@ ${typeCatalog}
     abortControllerRef.current = controller;
 
     try {
-      const result = await callGeminiAPI(prompt, controller.signal);
+      const result = await callAIWithFallback(
+        prompt,
+        () => setInfo('Gemini no está disponible. Reintentando con Ollama ahora mismo...'),
+        controller.signal,
+      );
       const newSongs = validateSongBlocks(result, numExercises);
 
       setRoutines((prev) =>
@@ -247,6 +335,19 @@ ${typeCatalog}
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20">
+      {/* TOAST DE AVISO (fallback a Ollama) */}
+      {info && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[101] max-w-md w-full px-4 animate-in">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-start gap-3 shadow-lg">
+            <Info size={20} className="text-indigo-500 shrink-0 mt-0.5" />
+            <p className="text-sm text-indigo-700 flex-1">{info}</p>
+            <button onClick={() => setInfo(null)} className="text-indigo-400 hover:text-indigo-600">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* TOAST DE ERRORES */}
       {error && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[100] max-w-md w-full px-4 animate-in">
