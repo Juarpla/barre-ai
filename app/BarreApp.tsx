@@ -24,6 +24,21 @@ import BarreIllustrator from './components/BarreIllustrator';
 // --- CONFIGURACIÓN ---
 const STORAGE_KEY = 'barre-ai-routines-v1';
 
+/**
+ * Si la IA devuelve un objeto wrapper en vez de un array desnudo
+ * (ej. { "songs": [...] } o { "blocks": [...] }), extrae el primer
+ * valor que sea un array. Si ya es un array, lo devuelve tal cual.
+ */
+function unwrapArray(data: unknown): unknown {
+  if (Array.isArray(data)) return data;
+  if (data !== null && typeof data === 'object') {
+    for (const val of Object.values(data as Record<string, unknown>)) {
+      if (Array.isArray(val)) return val;
+    }
+  }
+  return data;
+}
+
 // --- TIPOS PARA PROVEEDOR ACTIVO ---
 export type AIProvider = 'gemini' | 'openrouter' | 'ollama-cloud' | null;
 
@@ -315,8 +330,8 @@ ${typeCatalog}
     3. Usa estos rangos de tiempo para la propiedad "t": ${timeRanges.map(t => `"${t}"`).join(', ')}.
     4. Las canciones deben ser reales, populares y con buen ritmo para ejercicio.
 
-    Responde UNICAMENTE con JSON:
-    [${timeRanges.map(t => `{"t": "${t}", "options": ["Cancion 1 - Artista", "Cancion 2 - Artista", "Cancion 3 - Artista"]}`).join(', ')}]`;
+    Responde UNICAMENTE con un objeto JSON con la propiedad "songs":
+    {"songs": [${timeRanges.map(t => `{"t": "${t}", "options": ["Cancion 1 - Artista", "Cancion 2 - Artista", "Cancion 3 - Artista"]}`).join(', ')}]}`;
 
     abortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -329,7 +344,10 @@ ${typeCatalog}
         (p) => setActiveProvider(p),
         controller.signal,
       );
-      const newSongs = validateSongBlocks(result, numExercises);
+      // Algunos LLMs envuelven el array en un objeto, ej: { "songs": [...] }
+      // Intentar extraer el array desde cualquier propiedad del objeto antes de validar
+      const songsData = unwrapArray(result);
+      const newSongs = validateSongBlocks(songsData, numExercises);
 
       setRoutines((prev) =>
         prev.map((r) => (r.id === routineId ? { ...r, songs: newSongs } : r))
