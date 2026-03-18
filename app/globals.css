@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* Hide scrollbar but keep functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
