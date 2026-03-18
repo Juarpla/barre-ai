@@ -7,9 +7,8 @@ export const INITIAL_ROUTINES: Routine[] = [
     duration: '8 min',
     equipment: ['Sin equipo'],
     songs: [
-      { t: '0-3 min', options: ['Levitating - Dua Lipa', 'Physical - Dua Lipa', 'Say So - Doja Cat'] },
-      { t: '3-6 min', options: ['Flowers - Miley Cyrus', 'Starboy - The Weeknd', 'Cold Heart - Elton John'] },
-      { t: '6-8 min', options: ['Dance The Night - Dua Lipa', 'Vampire - Olivia Rodrigo', 'About Damn Time - Lizzo'] },
+      { t: '0-4 min', options: ['Levitating - Dua Lipa', 'Physical - Dua Lipa', 'Say So - Doja Cat'] },
+      { t: '4-8 min', options: ['Flowers - Miley Cyrus', 'Starboy - The Weeknd', 'Cold Heart - Elton John'] },
     ],
     sequence: [
       {
@@ -40,9 +39,8 @@ export const INITIAL_ROUTINES: Routine[] = [
     duration: '9 min',
     equipment: ['Pesas pequeñas', 'Ligas'],
     songs: [
-      { t: '0-3 min', options: ['Cruel Summer - Taylor Swift', 'Anti-Hero - Taylor Swift', 'Karma - Taylor Swift'] },
-      { t: '3-6 min', options: ['Houdini - Dua Lipa', 'Training Season - Dua Lipa', 'Illusion - Dua Lipa'] },
-      { t: '6-9 min', options: ['Espresso - Sabrina Carpenter', 'Please Please Please - Sabrina Carpenter', 'Feather - Sabrina Carpenter'] },
+      { t: '0-4 min', options: ['Cruel Summer - Taylor Swift', 'Anti-Hero - Taylor Swift', 'Karma - Taylor Swift'] },
+      { t: '4-9 min', options: ['Houdini - Dua Lipa', 'Training Season - Dua Lipa', 'Illusion - Dua Lipa'] },
     ],
     sequence: [
       {
@@ -105,9 +103,8 @@ export const INITIAL_ROUTINES: Routine[] = [
     duration: '9 min',
     equipment: ['Ligas', 'Pesas pequeñas'],
     songs: [
-      { t: '0-3 min', options: ['Vampire - Olivia Rodrigo', 'Bad Idea Right? - Olivia Rodrigo', 'Get Him Back! - Olivia Rodrigo'] },
-      { t: '3-6 min', options: ['greedy - Tate McRae', 'exes - Tate McRae', 'run for the hills - Tate McRae'] },
-      { t: '6-9 min', options: ['Yes, and? - Ariana Grande', 'Eternal Sunshine - Ariana Grande', "We Can't Be Friends - Ariana Grande"] },
+      { t: '0-4 min', options: ['Vampire - Olivia Rodrigo', 'Bad Idea Right? - Olivia Rodrigo', 'Get Him Back! - Olivia Rodrigo'] },
+      { t: '4-9 min', options: ['greedy - Tate McRae', 'exes - Tate McRae', 'run for the hills - Tate McRae'] },
     ],
     sequence: [
       {

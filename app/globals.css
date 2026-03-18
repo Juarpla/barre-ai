@@ -42,3 +42,145 @@ body {
 .animate-in {
   animation: animate-in 0.3s ease-out;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  BarreIllustrator SVG keyframe animations                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+/* standing: gentle side sway */
+@keyframes sway {
+  0%, 100% { transform: rotate(-3deg); }
+  50%       { transform: rotate(3deg); }
+}
+
+/* warmup_arms: counter-clockwise arm circle */
+@keyframes spinCCW {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+
+/* warmup_arms: clockwise arm circle */
+@keyframes spinCW {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* barre_kick: leg swings forward */
+@keyframes kick {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(-50deg); }
+}
+
+/* barre_releve: whole body rises on toes */
+@keyframes riseUp {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-5px); }
+}
+
+/* barre_tendu: leg slides out then back */
+@keyframes tendu {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(20deg); }
+}
+
+/* barre_plie: body pulses slightly down */
+@keyframes plieDown {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(4px); }
+}
+
+/* standing_kickback: leg pulses back */
+@keyframes kickBack {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(-40deg); }
+}
+
+/* standing_circles: leg draws circles */
+@keyframes legCircle {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* standing_arms: left arm bicep curl */
+@keyframes curlLeft {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(-40deg); }
+}
+
+/* standing_arms: right arm bicep curl */
+@keyframes curlRight {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(40deg); }
+}
+
+/* standing_lean_arms: arms reach back and return */
+@keyframes reachBack {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(15deg); }
+}
+
+/* floor_donkey: leg kicks up */
+@keyframes donkeyKick {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(-50deg); }
+}
+
+/* floor_hydrant: leg opens to side */
+@keyframes hydrant {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(-40deg); }
+}
+
+/* plank_cube: subtle body bounce */
+@keyframes plankBounce {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-3px); }
+}
+
+/* plank_knees: knee drives in */
+@keyframes mountainClimber {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(30deg); }
+}
+
+/* bridge_ball: hips rise high */
+@keyframes bridgeLift {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+
+/* bridge_pulses: small quick pulses */
+@keyframes bridgePulse {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-3px); }
+}
+
+/* abs_crunch: upper body curls up */
+@keyframes crunchUp {
+  0%, 100% { transform: rotate(0deg) translateY(0px); }
+  50%       { transform: rotate(-15deg) translateY(-4px); }
+}
+
+/* abs_scissors: leg raises */
+@keyframes scissorUp {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(-30deg); }
+}
+
+/* abs_scissors: leg lowers */
+@keyframes scissorDown {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(30deg); }
+}
+
+/* stretch_pigeon: torso folds forward */
+@keyframes pigeonFold {
+  0%, 100% { transform: rotate(0deg) translateY(0px); }
+  50%       { transform: rotate(10deg) translateY(4px); }
+}
+
+/* stretch_child: gentle breath swell */
+@keyframes breathe {
+  0%, 100% { transform: scaleY(1); }
+  50%       { transform: scaleY(1.03); }
+}

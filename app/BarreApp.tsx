@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dumbbell,
   Music,
@@ -13,25 +13,15 @@ import {
   AlertCircle,
   X,
 } from 'lucide-react';
-import {
-  signInAnonymously,
-  onAuthStateChanged,
-  User,
-} from 'firebase/auth';
-import {
-  doc,
-  setDoc,
-  onSnapshot,
-} from 'firebase/firestore';
 
 import type { Routine } from './lib/types';
+import { ILLUSTRATION_CATALOG } from './lib/types';
 import { validateSequenceItems, validateSongBlocks } from './lib/validation';
-import { auth, db, firebaseEnabled } from './lib/firebase';
 import { INITIAL_ROUTINES } from './data/routines';
 import BarreIllustrator from './components/BarreIllustrator';
 
 // --- CONFIGURACIÓN ---
-const appId = 'barre-ai-app-v2';
+const STORAGE_KEY = 'barre-ai-routines-v1';
 
 // --- HELPER: llamada a la API de Gemini via server route ---
 async function callGeminiAPI(prompt: string, signal?: AbortSignal): Promise<unknown> {
@@ -55,8 +45,16 @@ async function callGeminiAPI(prompt: string, signal?: AbortSignal): Promise<unkn
 
 // --- APP PRINCIPAL ---
 export default function BarreApp() {
-  const [user, setUser] = useState<User | null>(null);
-  const [routines, setRoutines] = useState<Routine[]>(INITIAL_ROUTINES);
+  const [routines, setRoutines] = useState<Routine[]>(() => {
+    // Inicializar desde localStorage si hay datos guardados
+    if (typeof window === 'undefined') return INITIAL_ROUTINES;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? (JSON.parse(saved) as Routine[]) : INITIAL_ROUTINES;
+    } catch {
+      return INITIAL_ROUTINES;
+    }
+  });
   const [currentIdx, setCurrentIdx] = useState(0);
   const [isImproving, setIsImproving] = useState(false);
   const [isRefreshingSongs, setIsRefreshingSongs] = useState(false);
@@ -84,50 +82,14 @@ export default function BarreApp() {
     setCurrentIdx((prev) => Math.min(prev, routines.length - 1));
   }, [routines]);
 
-  // Firebase Auth
+  // Persistir en localStorage cada vez que routines cambia
   useEffect(() => {
-    if (!auth) return;
-    signInAnonymously(auth).catch((e) => {
-      console.error('Error en autenticación anónima:', e);
-    });
-    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
-    return () => unsubscribe();
-  }, []);
-
-  // Firebase Firestore listener con error handler
-  useEffect(() => {
-    if (!user || !db) return;
-    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'routines');
-    const unsub = onSnapshot(
-      docRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          setRoutines(docSnap.data().data);
-        }
-      },
-      (err) => {
-        console.error('Error en Firestore listener:', err);
-        setError('Error al sincronizar datos. Los cambios se guardarán localmente.');
-      }
-    );
-    return () => unsub();
-  }, [user]);
-
-  const saveRoutines = useCallback(
-    async (newData: Routine[]) => {
-      if (!user || !db) return;
-      try {
-        await setDoc(
-          doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'routines'),
-          { data: newData }
-        );
-      } catch (e) {
-        console.error('Error al guardar rutinas:', e);
-        setError('No se pudieron guardar los cambios en la nube.');
-      }
-    },
-    [user]
-  );
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(routines));
+    } catch {
+      console.warn('No se pudo guardar en localStorage.');
+    }
+  }, [routines]);
 
   const isAIBusy = isImproving || isRefreshingSongs;
 
@@ -143,13 +105,41 @@ export default function BarreApp() {
       return;
     }
 
-    const defaultType = routine.sequence[0]?.type ?? 'standing';
-    const prompt = `Como experto en Barre, mejora esta secuencia de "${routine.title}".
-    REGLA: La propiedad "steps" DEBE SER un array de strings (viñetas).
+    const numExercises = Math.max(3, routine.sequence.length);
+    const durationNum = parseInt(routine.duration) || 6;
+    const blockDuration = Math.round(durationNum / numExercises);
+    const timeRanges = Array.from({ length: numExercises }, (_, i) => {
+      const start = i * blockDuration;
+      const end = i === numExercises - 1 ? durationNum : (i + 1) * blockDuration;
+      return `${start}-${end} min`;
+    });
+
+    // Construir catálogo de tipos para el prompt
+    const typeCatalog = Object.entries(ILLUSTRATION_CATALOG)
+      .map(([key, desc]) => `  - "${key}": ${desc}`)
+      .join('\n');
+
+    const prompt = `Como experto en Barre, mejora la secuencia de "${routine.title}" (${routine.duration}).
+    
+    REGLAS OBLIGATORIAS:
+    1. Genera EXACTAMENTE ${numExercises} ejercicios distintos (ni más, ni menos).
+    2. Cada ejercicio debe ser un objeto independiente en el array "sequence".
+    3. La propiedad "steps" DEBE SER un array de EXACTAMENTE 5 instrucciones. Cada instrucción debe ser una sola frase corta y clara.
+    4. NO combines varios ejercicios en uno solo.
+    5. La propiedad "type" DEBE SER uno de los siguientes valores según la postura del ejercicio:
+${typeCatalog}
+    Elige el "type" que mejor represente visualmente la posición corporal del ejercicio.
     Equipo disponible: ${routine.equipment.join(', ')}.
     
-    Responde UNICAMENTE con JSON:
-    [{"name": "nombre", "steps": ["paso 1", "paso 2"], "type": "${defaultType}"}]`;
+    6. Genera TAMBIÉN un array "songs" con EXACTAMENTE ${numExercises} bloques de canciones (~126-128 BPM), uno por cada ejercicio.
+    7. Cada bloque de canciones debe tener EXACTAMENTE 3 opciones de canciones reales y populares.
+    8. Usa estos rangos de tiempo: ${timeRanges.map(t => `"${t}"`).join(', ')}.
+    
+    Responde UNICAMENTE con un JSON objeto con dos propiedades:
+    {
+      "sequence": [{"name": "Ejercicio 1", "steps": ["Instrucción 1", "Instrucción 2", "Instrucción 3", "Instrucción 4", "Instrucción 5"], "type": "tipo_del_catalogo"}, ...],
+      "songs": [{"t": "${timeRanges[0]}", "options": ["Cancion 1 - Artista", "Cancion 2 - Artista", "Cancion 3 - Artista"]}, ...]
+    }`;
 
     // Cancelar request anterior si existe
     abortControllerRef.current?.abort();
@@ -158,15 +148,30 @@ export default function BarreApp() {
 
     try {
       const result = await callGeminiAPI(prompt, controller.signal);
-      const improvedSequence = validateSequenceItems(result);
+
+      // Parsear respuesta que ahora contiene sequence y songs
+      const parsed = result as { sequence?: unknown; songs?: unknown };
+      if (!parsed || typeof parsed !== 'object' || !('sequence' in parsed)) {
+        throw new Error('Respuesta inesperada: se esperaba un objeto con "sequence" y "songs"');
+      }
+
+      const improvedSequence = validateSequenceItems(parsed.sequence, numExercises);
+      // Validar songs si están presentes, sino mantener las existentes
+      let newSongs = routine.songs;
+      if (parsed.songs) {
+        try {
+          newSongs = validateSongBlocks(parsed.songs, numExercises);
+        } catch {
+          // Si las canciones fallan la validación, mantener las existentes
+          console.warn('Songs validation failed, keeping existing songs');
+        }
+      }
 
       // State update funcional para evitar race conditions
       setRoutines((prev) => {
         const updated = prev.map((r) =>
-          r.id === routineId ? { ...r, sequence: improvedSequence } : r
+          r.id === routineId ? { ...r, sequence: improvedSequence, songs: newSongs } : r
         );
-        // Guardar en Firestore (fire-and-forget con manejo de errores interno)
-        saveRoutines(updated);
         return updated;
       });
     } catch (err) {
@@ -184,14 +189,30 @@ export default function BarreApp() {
     setError(null);
 
     const routine = routines.find((r) => r.id === routineId);
-    if (!routine) {
+    if (!routine || !routine.sequence.length) {
       setIsRefreshingSongs(false);
       return;
     }
 
-    const prompt = `Sugiere 3 canciones de ritmo constante (~126-128 BPM) para una rutina de "${routine.title}".
+    const numExercises = routine.sequence.length;
+    const durationNum = parseInt(routine.duration) || 6;
+    const blockDuration = Math.round(durationNum / numExercises);
+    const timeRanges = Array.from({ length: numExercises }, (_, i) => {
+      const start = i * blockDuration;
+      const end = i === numExercises - 1 ? durationNum : (i + 1) * blockDuration;
+      return `${start}-${end} min`;
+    });
+
+    const prompt = `Como DJ experto en fitness, sugiere canciones de ritmo constante (~126-128 BPM) para una rutina de Barre "${routine.title}" (${routine.duration}).
+
+    REGLAS OBLIGATORIAS:
+    1. Genera EXACTAMENTE ${numExercises} bloques de canciones (uno por cada ejercicio de la rutina).
+    2. Cada bloque debe tener EXACTAMENTE 3 opciones de canciones (ni más, ni menos).
+    3. Usa estos rangos de tiempo para la propiedad "t": ${timeRanges.map(t => `"${t}"`).join(', ')}.
+    4. Las canciones deben ser reales, populares y con buen ritmo para ejercicio.
+
     Responde UNICAMENTE con JSON:
-    [{"t": "0-3 min", "options": ["Cancion 1 - Artista", "Cancion 2", "Cancion 3"]}]`;
+    [${timeRanges.map(t => `{"t": "${t}", "options": ["Cancion 1 - Artista", "Cancion 2 - Artista", "Cancion 3 - Artista"]}`).join(', ')}]`;
 
     abortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -199,15 +220,11 @@ export default function BarreApp() {
 
     try {
       const result = await callGeminiAPI(prompt, controller.signal);
-      const newSongs = validateSongBlocks(result);
+      const newSongs = validateSongBlocks(result, numExercises);
 
-      setRoutines((prev) => {
-        const updated = prev.map((r) =>
-          r.id === routineId ? { ...r, songs: newSongs } : r
-        );
-        saveRoutines(updated);
-        return updated;
-      });
+      setRoutines((prev) =>
+        prev.map((r) => (r.id === routineId ? { ...r, songs: newSongs } : r))
+      );
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       console.error('Error al refrescar canciones:', err);
@@ -285,7 +302,7 @@ export default function BarreApp() {
             <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-8">
               <div className="text-center md:text-left">
                 <span className="text-indigo-400 font-bold uppercase tracking-[0.2em] text-[10px] mb-2 block">
-                  {firebaseEnabled ? 'Sesión Sincronizada' : 'Sesión Local'}
+                  Sesión Local
                 </span>
                 <h2 className="text-5xl font-black mb-4">{currentRoutine.title}</h2>
                 <div className="flex flex-wrap justify-center md:justify-start gap-3 text-slate-400 font-medium">
