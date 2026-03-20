@@ -13,16 +13,34 @@ import {
   AlertCircle,
   Info,
   X,
+  PlayCircle,
+  Loader2,
+  Search,
 } from 'lucide-react';
 
-import type { Routine } from './lib/types';
+import type { Routine, SequenceItem } from './lib/types';
 import { ILLUSTRATION_CATALOG } from './lib/types';
 import { validateSequenceItems, validateSongBlocks } from './lib/validation';
 import { INITIAL_ROUTINES } from './data/routines';
 import BarreIllustrator from './components/BarreIllustrator';
 
 // --- CONFIGURACIÓN ---
-const STORAGE_KEY = 'barre-ai-routines-v1';
+const STORAGE_KEY = 'barre-ai-routines-v2';
+
+/** Rango válido de duración total de la sesión completa (todas las rutinas sumadas) */
+const SESSION_MIN_MINUTES = 45;
+const SESSION_MAX_MINUTES = 55;
+
+/**
+ * Devuelve cuántos ejercicios debe tener una rutina según su duración:
+ *   ≤ 5 min → 2 ejercicios
+ *   ≥ 6 min → 3 ejercicios
+ * Esto regula el tiempo real de cada sección de forma proporcional.
+ */
+function exercisesForDuration(durationMin: number): number {
+  if (durationMin <= 5) return 2;
+  return 3;
+}
 
 /**
  * Si la IA devuelve un objeto wrapper en vez de un array desnudo
@@ -48,6 +66,132 @@ export const PROVIDER_LABELS: Record<NonNullable<AIProvider>, string> = {
   'openrouter': 'OpenRouter',
   'ollama-cloud': 'Ollama Cloud',
 };
+
+// --- TIPOS PARA BÚSQUEDA DE VIDEO ---
+interface VideoResult {
+  videoId: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  url: string;
+  source: 'youtube' | 'vimeo' | 'dailymotion';
+}
+
+type VideoState = 'idle' | 'loading' | 'error' | VideoResult[];
+
+const SOURCE_LABELS: Record<VideoResult['source'], string> = {
+  youtube: 'YouTube',
+  vimeo: 'Vimeo',
+  dailymotion: 'Dailymotion',
+};
+
+const SOURCE_COLORS: Record<VideoResult['source'], string> = {
+  youtube: 'bg-red-100 text-red-700',
+  vimeo: 'bg-sky-100 text-sky-700',
+  dailymotion: 'bg-blue-100 text-blue-700',
+};
+
+/**
+ * Detecta pares de ejercicios espejo (derecha/izquierda) en una secuencia y
+ * sincroniza sus pasos: el ejercicio del lado derecho dicta los pasos; el del
+ * lado izquierdo recibe los mismos pasos con los términos de lateralidad
+ * reemplazados (derecha↔izquierda, right↔left, etc.).
+ *
+ * Empareja por proximidad: busca el primer vecino sin par que tenga el mismo
+ * nombre base (sin el término de lado). Se procesan de arriba hacia abajo.
+ */
+function mirrorPairedExercises(sequence: SequenceItem[]): SequenceItem[] {
+  // Mapa de términos: [derecha, izquierda]  (en minúsculas, para detectar)
+  const SIDE_PAIRS: [string, string][] = [
+    ['derecho', 'izquierdo'],
+    ['derecha', 'izquierda'],
+    ['right',   'left'],
+  ];
+
+  /** Normaliza el nombre de un ejercicio removiendo indicadores de lado */
+  function baseName(name: string): string {
+    let base = name.toLowerCase();
+    for (const [r, l] of SIDE_PAIRS) {
+      base = base.replace(new RegExp(`\\b${r}\\b`, 'g'), '').replace(new RegExp(`\\b${l}\\b`, 'g'), '');
+    }
+    return base.replace(/\s+/g, ' ').trim();
+  }
+
+  /** Devuelve 'right', 'left' o null según el lado que menciona el nombre */
+  function detectSide(name: string): 'right' | 'left' | null {
+    const lower = name.toLowerCase();
+    for (const [r, l] of SIDE_PAIRS) {
+      if (new RegExp(`\\b${r}\\b`).test(lower)) return 'right';
+      if (new RegExp(`\\b${l}\\b`).test(lower)) return 'left';
+    }
+    return null;
+  }
+
+  /** Reemplaza todos los términos de lado en un string (right→left o left→right) */
+  function swapSideTerms(text: string): string {
+    // Usar placeholder para evitar doble reemplazo
+    let result = text;
+    for (const [r, l] of SIDE_PAIRS) {
+      const rRe = new RegExp(`\\b${r}\\b`, 'gi');
+      const lRe = new RegExp(`\\b${l}\\b`, 'gi');
+      result = result
+        .replace(rRe, (m) => `__R__${m}__R__`)
+        .replace(lRe, (m) => `__L__${m}__L__`);
+    }
+    // Ahora resolver los placeholders cruzando lados
+    result = result
+      .replace(/__R__(derecho)__R__/gi, 'izquierdo')
+      .replace(/__R__(derecha)__R__/gi, 'izquierda')
+      .replace(/__R__(right)__R__/gi, 'left')
+      .replace(/__L__(izquierdo)__L__/gi, 'derecho')
+      .replace(/__L__(izquierda)__L__/gi, 'derecha')
+      .replace(/__L__(left)__L__/gi, 'right');
+    // Limpiar cualquier placeholder residual
+    result = result.replace(/__[RL]__[^_]*__[RL]__/g, (m) => m.replace(/__[RL]__/g, ''));
+    return result;
+  }
+
+  const result = [...sequence];
+  const paired = new Set<number>(); // índices ya procesados
+
+  for (let i = 0; i < result.length; i++) {
+    if (paired.has(i)) continue;
+    const sideI = detectSide(result[i].name);
+    if (!sideI) continue;
+
+    const baseI = baseName(result[i].name);
+
+    // Buscar el primer ejercicio aún no emparejado con el mismo nombre base y lado opuesto
+    for (let j = i + 1; j < result.length; j++) {
+      if (paired.has(j)) continue;
+      const sideJ = detectSide(result[j].name);
+      if (!sideJ || sideJ === sideI) continue;
+      if (baseName(result[j].name) !== baseI) continue;
+
+      // ¡Par encontrado! i=right/left, j=opuesto
+      // El que aparece primero (i) dicta los pasos; j recibe mirror de los mismos
+      const dominantSteps = result[i].steps;
+      const mirroredSteps = dominantSteps.map((s: string) => swapSideTerms(s));
+
+      result[j] = { ...result[j], steps: mirroredSteps };
+
+      paired.add(i);
+      paired.add(j);
+      break;
+    }
+  }
+
+  return result;
+}
+
+// --- OPCIONES DE BPM ---
+export const BPM_OPTIONS = [
+  { value: 110, label: '110 BPM', description: 'Suave' },
+  { value: 128, label: '128 BPM', description: 'Clásico' },
+  { value: 140, label: '140 BPM', description: 'Cardio' },
+] as const;
+
+export type BpmValue = (typeof BPM_OPTIONS)[number]['value'];
 
 // --- HELPER: llamada a la API de Gemini via server route ---
 async function callGeminiAPI(prompt: string, signal?: AbortSignal): Promise<unknown> {
@@ -165,6 +309,13 @@ export default function BarreApp() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [activeProvider, setActiveProvider] = useState<AIProvider>(null);
+  const [bpm, setBpm] = useState<BpmValue>(128);
+  const [videoStates, setVideoStates] = useState<Record<string, VideoState>>({});
+  // Modal de selección de video: nombre del ejercicio activo, o null si cerrado
+  const [videoModal, setVideoModal] = useState<string | null>(null);
+  const [videoPage, setVideoPage] = useState(0);
+  // Query manual para búsqueda personalizada en el modal
+  const [videoCustomQuery, setVideoCustomQuery] = useState('');
 
   // AbortController ref para cancelar fetch al desmontar
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -206,6 +357,50 @@ export default function BarreApp() {
 
   const isAIBusy = isImproving || isRefreshingSongs;
 
+  // Busca videos en los 3 proveedores en paralelo y abre el modal de selección
+  const fetchVideo = async (exerciseName: string) => {
+    const key = exerciseName;
+    const current = videoStates[key];
+    // Si ya tenemos resultados cacheados, abre el modal directamente
+    if (Array.isArray(current) && current.length > 0) {
+      setVideoPage(0);
+      setVideoModal(key);
+      return;
+    }
+    setVideoStates((prev) => ({ ...prev, [key]: 'loading' }));
+    setVideoPage(0);
+    setVideoModal(key);
+    try {
+      const res = await fetch(`/api/video-search?q=${encodeURIComponent(exerciseName)}`);
+      if (!res.ok) throw new Error('Respuesta no exitosa');
+      const data = await res.json();
+      const videos: VideoResult[] = data.videos ?? [];
+      if (videos.length === 0) throw new Error('Sin resultados');
+      setVideoStates((prev) => ({ ...prev, [key]: videos }));
+    } catch {
+      setVideoStates((prev) => ({ ...prev, [key]: 'error' }));
+    }
+  };
+
+  // Busca con una query personalizada del usuario, bajo la clave del ejercicio activo
+  const fetchVideoByQuery = async (key: string, customQuery: string) => {
+    const q = customQuery.trim();
+    if (!q) return;
+    setVideoStates((prev) => ({ ...prev, [key]: 'loading' }));
+    setVideoPage(0);
+    setVideoCustomQuery('');
+    try {
+      const res = await fetch(`/api/video-search?q=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error('Respuesta no exitosa');
+      const data = await res.json();
+      const videos: VideoResult[] = data.videos ?? [];
+      if (videos.length === 0) throw new Error('Sin resultados');
+      setVideoStates((prev) => ({ ...prev, [key]: videos }));
+    } catch {
+      setVideoStates((prev) => ({ ...prev, [key]: 'error' }));
+    }
+  };
+
   const improveRoutineWithAI = async (routineId: number) => {
     if (isAIBusy) return;
     setIsImproving(true);
@@ -218,8 +413,8 @@ export default function BarreApp() {
       return;
     }
 
-    const numExercises = Math.max(3, routine.sequence.length);
     const durationNum = parseInt(routine.duration) || 6;
+    const numExercises = exercisesForDuration(durationNum);
     const blockDuration = Math.round(durationNum / numExercises);
     const timeRanges = Array.from({ length: numExercises }, (_, i) => {
       const start = i * blockDuration;
@@ -244,7 +439,7 @@ ${typeCatalog}
     Elige el "type" que mejor represente visualmente la posición corporal del ejercicio.
     Equipo disponible: ${routine.equipment.join(', ')}.
     
-    6. Genera TAMBIÉN un array "songs" con EXACTAMENTE ${numExercises} bloques de canciones (~126-128 BPM), uno por cada ejercicio.
+    6. Genera TAMBIÉN un array "songs" con EXACTAMENTE ${numExercises} bloques de canciones (~${bpm} BPM), uno por cada ejercicio.
     7. Cada bloque de canciones debe tener EXACTAMENTE 3 opciones de canciones reales y populares.
     8. Usa estos rangos de tiempo: ${timeRanges.map(t => `"${t}"`).join(', ')}.
     
@@ -273,7 +468,9 @@ ${typeCatalog}
         throw new Error('Respuesta inesperada: se esperaba un objeto con "sequence" y "songs"');
       }
 
-      const improvedSequence = validateSequenceItems(parsed.sequence, numExercises);
+      const improvedSequence = mirrorPairedExercises(
+        validateSequenceItems(parsed.sequence, numExercises)
+      );
       // Validar songs si están presentes, sino mantener las existentes
       let newSongs = routine.songs;
       if (parsed.songs) {
@@ -313,8 +510,8 @@ ${typeCatalog}
       return;
     }
 
-    const numExercises = routine.sequence.length;
     const durationNum = parseInt(routine.duration) || 6;
+    const numExercises = exercisesForDuration(durationNum);
     const blockDuration = Math.round(durationNum / numExercises);
     const timeRanges = Array.from({ length: numExercises }, (_, i) => {
       const start = i * blockDuration;
@@ -322,7 +519,7 @@ ${typeCatalog}
       return `${start}-${end} min`;
     });
 
-    const prompt = `Como DJ experto en fitness, sugiere canciones de ritmo constante (~126-128 BPM) para una rutina de Barre "${routine.title}" (${routine.duration}).
+    const prompt = `Como DJ experto en fitness, sugiere canciones de ritmo constante (~${bpm} BPM) para una rutina de Barre "${routine.title}" (${routine.duration}).
 
     REGLAS OBLIGATORIAS:
     1. Genera EXACTAMENTE ${numExercises} bloques de canciones (uno por cada ejercicio de la rutina).
@@ -363,6 +560,14 @@ ${typeCatalog}
   };
 
   const currentRoutine: Routine | undefined = routines[currentIdx];
+
+  /** Suma de todas las duraciones (en minutos) — se recalcula cuando routines cambia */
+  const totalMinutes = routines.reduce(
+    (sum, r) => sum + (parseInt(r.duration) || 0),
+    0
+  );
+  const totalLabel = `${totalMinutes} MIN`;
+  const totalInRange = totalMinutes >= SESSION_MIN_MINUTES && totalMinutes <= SESSION_MAX_MINUTES;
 
   // Guard: si no hay rutina actual (caso extremo), mostrar loading
   if (!currentRoutine) {
@@ -424,9 +629,16 @@ ${typeCatalog}
               IA en espera
             </div>
           )}
-          <div className="flex items-center gap-2 text-xs font-bold bg-indigo-50 px-3 py-1.5 rounded-full text-indigo-700">
+          <div
+            className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-full ${
+              totalInRange
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'bg-amber-50 text-amber-700'
+            }`}
+            title={totalInRange ? 'Duración total dentro del rango recomendado (45-55 min)' : `Fuera del rango recomendado (45-55 min)`}
+          >
             <Clock size={14} />
-            TOTAL: ~75 MIN
+            TOTAL: {totalLabel}
           </div>
         </div>
       </header>
@@ -490,18 +702,7 @@ ${typeCatalog}
                 )}
                 {isImproving ? 'INTELIGENCIA ACTIVA...' : 'POTENCIAR CON AI'}
               </button>
-              <button
-                onClick={() => refreshSongsWithAI(currentRoutine.id)}
-                disabled={isAIBusy}
-                className="flex items-center gap-3 bg-white/10 hover:bg-white/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all backdrop-blur-md"
-              >
-                {isRefreshingSongs ? (
-                  <RefreshCw size={20} className="animate-spin" />
-                ) : (
-                  <Music size={20} />
-                )}
-                REFRESCAR BEATS
-              </button>
+
             </div>
           </div>
 
@@ -536,6 +737,28 @@ ${typeCatalog}
                           </li>
                         ))}
                       </ul>
+                      {/* Botón Ver video */}
+                      <div className="mt-5">
+                        {(() => {
+                          const vs = videoStates[item.name];
+                          const isLoading = vs === 'loading';
+                          const isError = vs === 'error';
+                          return (
+                            <button
+                              onClick={() => fetchVideo(item.name)}
+                              disabled={isLoading}
+                              className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                              {isLoading ? (
+                                <Loader2 size={16} className="animate-spin" />
+                              ) : (
+                                <PlayCircle size={16} />
+                              )}
+                              {isLoading ? 'Buscando...' : isError ? 'Sin resultados — reintentar' : 'Ver video'}
+                            </button>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -549,9 +772,39 @@ ${typeCatalog}
                   <Music size={28} />
                   PLAYLIST RECOMENDADA
                 </h3>
-                <span className="bg-white/20 px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase">
-                  Ritmo: 128 BPM Constante
-                </span>
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* SELECTOR BPM */}
+                  <div className="flex items-center gap-1 bg-white/10 rounded-full p-1">
+                    {BPM_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setBpm(opt.value)}
+                        className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase transition-all ${
+                          bpm === opt.value
+                            ? 'bg-white text-indigo-700 shadow-sm'
+                            : 'text-white/70 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        {opt.label}
+                        <span className={`ml-1 font-medium normal-case tracking-normal ${bpm === opt.value ? 'text-indigo-400' : 'text-white/40'}`}>
+                          {opt.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => refreshSongsWithAI(currentRoutine.id)}
+                    disabled={isAIBusy}
+                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-1.5 rounded-full font-black text-[10px] tracking-widest uppercase transition-all backdrop-blur-md"
+                  >
+                    {isRefreshingSongs ? (
+                      <RefreshCw size={14} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={14} />
+                    )}
+                    REFRESCAR BEATS
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {currentRoutine.songs.map((block, i) => (
@@ -615,6 +868,208 @@ ${typeCatalog}
           </button>
         </div>
       </main>
+
+      {/* MODAL DE SELECCIÓN DE VIDEO */}
+      {videoModal && (() => {
+        const vs = videoStates[videoModal];
+        const isLoading = vs === 'loading';
+        const isError = vs === 'error';
+        const videos = Array.isArray(vs) ? vs : [];
+        const total = videos.length;
+        const page = Math.min(videoPage, Math.max(0, total - 1));
+        const current = videos[page] ?? null;
+
+        const closeModal = () => { setVideoModal(null); setVideoCustomQuery(''); };
+
+        return (
+          <div
+            className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center"
+            onClick={closeModal}
+          >
+            {/* Overlay */}
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+            {/* Panel — full-width en móvil, max-w-sm en desktop */}
+            <div
+              className="relative bg-white w-full sm:max-w-sm sm:mx-4 rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Pill handle (solo móvil) */}
+              <div className="flex justify-center pt-3 sm:hidden">
+                <div className="w-10 h-1 bg-slate-200 rounded-full" />
+              </div>
+
+              {/* Header */}
+              <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-slate-100">
+                <div className="min-w-0 pr-3">
+                  <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mb-0.5">Ver video</p>
+                  <h2 className="text-sm font-black text-slate-800 leading-snug truncate">{videoModal}</h2>
+                </div>
+                <button
+                  onClick={closeModal}
+                  className="shrink-0 w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors"
+                  aria-label="Cerrar"
+                >
+                  <X size={14} className="text-slate-500" />
+                </button>
+              </div>
+
+              {/* Contenido */}
+              <div className="px-5 py-4">
+
+                {/* Estado: cargando */}
+                {isLoading && (
+                  <div className="flex flex-col items-center gap-2 py-8 text-slate-400">
+                    <Loader2 size={28} className="animate-spin text-indigo-400" />
+                    <p className="text-xs text-center">Buscando en YouTube, Vimeo y Dailymotion...</p>
+                  </div>
+                )}
+
+                {/* Estado: error — campo de búsqueda manual */}
+                {isError && (
+                  <div className="flex flex-col gap-4 py-5">
+                    <div className="flex flex-col items-center gap-1.5 text-slate-400">
+                      <AlertCircle size={26} className="text-amber-400" />
+                      <p className="text-xs text-center text-slate-500">
+                        No se encontraron videos.<br />Intenta con otra búsqueda.
+                      </p>
+                    </div>
+
+                    {/* Input de búsqueda manual */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        fetchVideoByQuery(videoModal, videoCustomQuery);
+                      }}
+                      className="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        value={videoCustomQuery}
+                        onChange={(e) => setVideoCustomQuery(e.target.value)}
+                        placeholder="ej. plie barre tutorial"
+                        autoFocus
+                        className="flex-1 text-sm px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 placeholder-slate-300 text-slate-700 transition-all"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!videoCustomQuery.trim()}
+                        className="w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors shrink-0"
+                        aria-label="Buscar"
+                      >
+                        <Search size={15} className="text-white" />
+                      </button>
+                    </form>
+
+                    {/* Reintentar con query original */}
+                    <button
+                      onClick={() => {
+                        setVideoStates((prev) => ({ ...prev, [videoModal]: 'idle' }));
+                        fetchVideo(videoModal);
+                      }}
+                      className="text-xs text-slate-400 hover:text-indigo-600 transition-colors text-center"
+                    >
+                      Reintentar búsqueda original
+                    </button>
+                  </div>
+                )}
+
+                {/* Video actual */}
+                {current && (
+                  <div>
+                    {/* Thumbnail grande */}
+                    <a
+                      href={current.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={closeModal}
+                      className="block relative rounded-2xl overflow-hidden bg-slate-100 aspect-video group"
+                    >
+                      {current.thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={current.thumbnail}
+                          alt={current.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <PlayCircle size={40} className="text-slate-300" />
+                        </div>
+                      )}
+                      {/* Overlay play */}
+                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                          <PlayCircle size={24} className="text-indigo-600 ml-0.5" />
+                        </div>
+                      </div>
+                    </a>
+
+                    {/* Info del video */}
+                    <div className="mt-3 flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-800 leading-snug line-clamp-2">{current.title}</p>
+                        <p className="text-xs text-slate-400 mt-0.5 truncate">{current.channel}</p>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full shrink-0 ${SOURCE_COLORS[current.source]}`}>
+                        {SOURCE_LABELS[current.source]}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer — paginación + cerrar */}
+              <div className="px-5 pb-5 flex items-center gap-3">
+                {/* Navegación anterior/siguiente */}
+                {total > 1 && (
+                  <>
+                    <button
+                      onClick={() => setVideoPage((p) => Math.max(0, p - 1))}
+                      disabled={page === 0}
+                      className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-500 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                      aria-label="Anterior"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+
+                    {/* Indicador de página */}
+                    <div className="flex gap-1.5 items-center flex-1 justify-center">
+                      {videos.map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setVideoPage(i)}
+                          className={`rounded-full transition-all ${i === page ? 'w-4 h-2 bg-indigo-600' : 'w-2 h-2 bg-slate-200 hover:bg-slate-300'}`}
+                          aria-label={`Video ${i + 1}`}
+                        />
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => setVideoPage((p) => Math.min(total - 1, p + 1))}
+                      disabled={page === total - 1}
+                      className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-500 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                      aria-label="Siguiente"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </>
+                )}
+
+                {/* Botón cerrar prominente (si hay 1 solo video o en loading/error) */}
+                {(total <= 1 || isLoading || isError) && (
+                  <button
+                    onClick={closeModal}
+                    className="w-full py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-sm font-semibold text-slate-600 transition-colors"
+                  >
+                    Cerrar
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

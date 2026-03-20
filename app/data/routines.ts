@@ -1,20 +1,25 @@
 import type { Routine } from '../lib/types';
 
+// Duraciones ajustadas para que el total sea exactamente 50 min (rango válido: 45-55 min)
+// Distribución proporcional desde 76 min originales:
+//   Calentamiento 5 + Pierna D 6 + Glúteo D 5 + Pierna I 6 + Glúteo I 5
+//   + Brazos 5 + 4 Puntos 4 + Puentes 5 + Abdominales 5 + Estiramiento 4 = 50 min
+
 export const INITIAL_ROUTINES: Routine[] = [
   {
     id: 1,
     title: 'Calentamiento',
-    duration: '8 min',
+    duration: '5 min',
     equipment: ['Sin equipo'],
     songs: [
-      { t: '0-4 min', options: ['Levitating - Dua Lipa', 'Physical - Dua Lipa', 'Say So - Doja Cat'] },
-      { t: '4-8 min', options: ['Flowers - Miley Cyrus', 'Starboy - The Weeknd', 'Cold Heart - Elton John'] },
+      { t: '0-2 min', options: ['Levitating - Dua Lipa', 'Physical - Dua Lipa', 'Say So - Doja Cat'] },
+      { t: '2-5 min', options: ['Flowers - Miley Cyrus', 'Starboy - The Weeknd', 'Cold Heart - Elton John'] },
     ],
     sequence: [
       {
         name: 'Plié con Estiramiento Lateral',
         steps: [
-          'Coloca los pies en 2da posición (más anchos que hombres).',
+          'Coloca los pies en 2da posición (más anchos que hombros).',
           'Baja la cadera manteniendo la espalda recta.',
           'Estira el brazo derecho sobre la cabeza en un arco largo.',
           'Alterna lados manteniendo el core firme.',
@@ -36,11 +41,12 @@ export const INITIAL_ROUTINES: Routine[] = [
   {
     id: 2,
     title: 'Pierna Derecha',
-    duration: '9 min',
+    duration: '6 min',
     equipment: ['Pesas pequeñas', 'Ligas'],
     songs: [
-      { t: '0-4 min', options: ['Cruel Summer - Taylor Swift', 'Anti-Hero - Taylor Swift', 'Karma - Taylor Swift'] },
-      { t: '4-9 min', options: ['Houdini - Dua Lipa', 'Training Season - Dua Lipa', 'Illusion - Dua Lipa'] },
+      { t: '0-2 min', options: ['Cruel Summer - Taylor Swift', 'Anti-Hero - Taylor Swift', 'Karma - Taylor Swift'] },
+      { t: '2-4 min', options: ['Houdini - Dua Lipa', 'Training Season - Dua Lipa', 'Illusion - Dua Lipa'] },
+      { t: '4-6 min', options: ['Espresso - Sabrina Carpenter', 'Please Please Please - Sabrina Carpenter', 'Nonsense - Sabrina Carpenter'] },
     ],
     sequence: [
       {
@@ -63,16 +69,26 @@ export const INITIAL_ROUTINES: Routine[] = [
         ],
         type: 'barre_releve',
       },
+      {
+        name: 'Tendu Derecho',
+        steps: [
+          'Desliza el pie derecho hacia el lateral desde 1ra posición.',
+          'Mantén la punta en contacto con el suelo al extender.',
+          'Regresa a 1ra posición apretando los aductores.',
+          'Torso largo y hombros relajados durante todo el movimiento.',
+        ],
+        type: 'barre_tendu',
+      },
     ],
   },
   {
     id: 3,
     title: 'Glúteo Derecho',
-    duration: '7 min',
+    duration: '5 min',
     equipment: ['Aro', 'Cubo'],
     songs: [
-      { t: '0-3 min', options: ['Greedy - Tate McRae', 'Exes - Tate McRae', 'Run for the Hills - Tate McRae'] },
-      { t: '3-7 min', options: ['Rush - Troye Sivan', 'One of Your Girls - Troye Sivan', 'Got Me Started - Troye Sivan'] },
+      { t: '0-2 min', options: ['Greedy - Tate McRae', 'Exes - Tate McRae', 'Run for the Hills - Tate McRae'] },
+      { t: '2-5 min', options: ['Rush - Troye Sivan', 'One of Your Girls - Troye Sivan', 'Got Me Started - Troye Sivan'] },
     ],
     sequence: [
       {
@@ -100,11 +116,12 @@ export const INITIAL_ROUTINES: Routine[] = [
   {
     id: 4,
     title: 'Pierna Izquierda',
-    duration: '9 min',
+    duration: '6 min',
     equipment: ['Ligas', 'Pesas pequeñas'],
     songs: [
-      { t: '0-4 min', options: ['Vampire - Olivia Rodrigo', 'Bad Idea Right? - Olivia Rodrigo', 'Get Him Back! - Olivia Rodrigo'] },
-      { t: '4-9 min', options: ['greedy - Tate McRae', 'exes - Tate McRae', 'run for the hills - Tate McRae'] },
+      { t: '0-2 min', options: ['Vampire - Olivia Rodrigo', 'Bad Idea Right? - Olivia Rodrigo', 'Get Him Back! - Olivia Rodrigo'] },
+      { t: '2-4 min', options: ['greedy - Tate McRae', 'exes - Tate McRae', 'run for the hills - Tate McRae'] },
+      { t: '4-6 min', options: ['Espresso - Sabrina Carpenter', 'Please Please Please - Sabrina Carpenter', 'Nonsense - Sabrina Carpenter'] },
     ],
     sequence: [
       {
@@ -127,16 +144,26 @@ export const INITIAL_ROUTINES: Routine[] = [
         ],
         type: 'barre_plie',
       },
+      {
+        name: 'Grand Battement Izquierdo',
+        steps: [
+          'Mano derecha apoyada suavemente en la barra/cubo.',
+          'Lanza la pierna izquierda hacia adelante con fuerza controlada.',
+          'Mantén la punta del pie estirada (point).',
+          'Baja la pierna sin tocar el suelo completamente.',
+        ],
+        type: 'barre_kick',
+      },
     ],
   },
   {
     id: 5,
     title: 'Glúteo Izquierdo',
-    duration: '7 min',
+    duration: '5 min',
     equipment: ['Pelotita', 'Ligas'],
     songs: [
-      { t: '0-3 min', options: ['Starboy - The Weeknd', 'Blinding Lights - The Weeknd', 'Save Your Tears - The Weeknd'] },
-      { t: '3-7 min', options: ['Peaches - Justin Bieber', 'Stay - The Kid LAROI', 'Ghost - Justin Bieber'] },
+      { t: '0-2 min', options: ['Starboy - The Weeknd', 'Blinding Lights - The Weeknd', 'Save Your Tears - The Weeknd'] },
+      { t: '2-5 min', options: ['Peaches - Justin Bieber', 'Stay - The Kid LAROI', 'Ghost - Justin Bieber'] },
     ],
     sequence: [
       {
@@ -164,11 +191,11 @@ export const INITIAL_ROUTINES: Routine[] = [
   {
     id: 6,
     title: 'Brazos',
-    duration: '8 min',
+    duration: '5 min',
     equipment: ['Pesas pequeñas', 'Discos'],
     songs: [
-      { t: '0-4 min', options: ['Titanium - David Guetta', 'Wake Me Up - Avicii', 'Lean On - Major Lazer'] },
-      { t: '4-8 min', options: ['One Kiss - Calvin Harris', 'How Deep Is Your Love - Calvin Harris', 'Summer - Calvin Harris'] },
+      { t: '0-2 min', options: ['Titanium - David Guetta', 'Wake Me Up - Avicii', 'Lean On - Major Lazer'] },
+      { t: '2-5 min', options: ['One Kiss - Calvin Harris', 'How Deep Is Your Love - Calvin Harris', 'Summer - Calvin Harris'] },
     ],
     sequence: [
       {
@@ -196,11 +223,11 @@ export const INITIAL_ROUTINES: Routine[] = [
   {
     id: 7,
     title: '4 Puntos de Apoyo',
-    duration: '6 min',
+    duration: '4 min',
     equipment: ['Cubo'],
     songs: [
-      { t: '0-3 min', options: ['Stronger - Kanye West', 'Power - Kanye West', 'All of the Lights - Kanye West'] },
-      { t: '3-6 min', options: ['Work - Rihanna', 'Desperado - Rihanna', 'Needed Me - Rihanna'] },
+      { t: '0-2 min', options: ['Stronger - Kanye West', 'Power - Kanye West', 'All of the Lights - Kanye West'] },
+      { t: '2-4 min', options: ['Work - Rihanna', 'Desperado - Rihanna', 'Needed Me - Rihanna'] },
     ],
     sequence: [
       {
@@ -228,11 +255,11 @@ export const INITIAL_ROUTINES: Routine[] = [
   {
     id: 8,
     title: 'Glúteos (Puentes)',
-    duration: '8 min',
+    duration: '5 min',
     equipment: ['Pelotita', 'Ligas'],
     songs: [
-      { t: '0-4 min', options: ['Shape of You - Ed Sheeran', 'Bad Habits - Ed Sheeran', 'Shivers - Ed Sheeran'] },
-      { t: '4-8 min', options: ['Watermelon Sugar - Harry Styles', 'As It Was - Harry Styles', 'Adore You - Harry Styles'] },
+      { t: '0-2 min', options: ['Shape of You - Ed Sheeran', 'Bad Habits - Ed Sheeran', 'Shivers - Ed Sheeran'] },
+      { t: '2-5 min', options: ['Watermelon Sugar - Harry Styles', 'As It Was - Harry Styles', 'Adore You - Harry Styles'] },
     ],
     sequence: [
       {
@@ -260,11 +287,11 @@ export const INITIAL_ROUTINES: Routine[] = [
   {
     id: 9,
     title: 'Abdominales',
-    duration: '8 min',
+    duration: '5 min',
     equipment: ['Pelotita', 'Aro'],
     songs: [
-      { t: '0-4 min', options: ['Toxic - Britney Spears', 'Womanizer - Britney Spears', 'Gimme More - Britney Spears'] },
-      { t: '4-8 min', options: ['Single Ladies - Beyoncé', 'Crazy in Love - Beyoncé', 'Formation - Beyoncé'] },
+      { t: '0-2 min', options: ['Toxic - Britney Spears', 'Womanizer - Britney Spears', 'Gimme More - Britney Spears'] },
+      { t: '2-5 min', options: ['Single Ladies - Beyoncé', 'Crazy in Love - Beyoncé', 'Formation - Beyoncé'] },
     ],
     sequence: [
       {
@@ -292,11 +319,11 @@ export const INITIAL_ROUTINES: Routine[] = [
   {
     id: 10,
     title: 'Estiramiento Final',
-    duration: '6 min',
+    duration: '4 min',
     equipment: ['Sin equipo'],
     songs: [
-      { t: '0-3 min', options: ['Ocean Eyes - Billie Eilish', 'Lovely - Billie Eilish', 'Everything I Wanted - Billie Eilish'] },
-      { t: '3-6 min', options: ['Shallow - Lady Gaga', 'Always Remember Us This Way - Lady Gaga', "I'll Never Love Again - Lady Gaga"] },
+      { t: '0-2 min', options: ['Ocean Eyes - Billie Eilish', 'Lovely - Billie Eilish', 'Everything I Wanted - Billie Eilish'] },
+      { t: '2-4 min', options: ['Shallow - Lady Gaga', 'Always Remember Us This Way - Lady Gaga', "I'll Never Love Again - Lady Gaga"] },
     ],
     sequence: [
       {
